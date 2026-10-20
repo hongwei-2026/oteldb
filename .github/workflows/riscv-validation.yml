@@ -46,7 +46,48 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          ./oteldb --embedded >oteldb.log 2>&1 &
+          cat >riscv-validation.yml <<'EOF'
+          prometheus:
+            bind: 127.0.0.1:19090
+          loki:
+            bind: 127.0.0.1:13100
+          tempo:
+            bind: 127.0.0.1:13200
+          pyroscope:
+            bind: 127.0.0.1:14040
+          admin:
+            bind: 127.0.0.1:18090
+          health_check:
+            bind: 127.0.0.1:23133
+          otelcol:
+            receivers:
+              otlp:
+                protocols:
+                  grpc:
+                    endpoint: 127.0.0.1:14317
+                  http:
+                    endpoint: 127.0.0.1:14318
+              prometheusremotewrite:
+                endpoint: 127.0.0.1:19291
+            exporters:
+              oteldbexporter: {}
+            service:
+              pipelines:
+                metrics:
+                  receivers: [otlp, prometheusremotewrite]
+                  exporters: [oteldbexporter]
+                traces:
+                  receivers: [otlp]
+                  exporters: [oteldbexporter]
+                logs:
+                  receivers: [otlp]
+                  exporters: [oteldbexporter]
+                profiles:
+                  receivers: [otlp]
+                  exporters: [oteldbexporter]
+          EOF
+
+          ./oteldb --embedded --config riscv-validation.yml >oteldb.log 2>&1 &
           pid=$!
           cleanup() {
             kill "$pid" 2>/dev/null || true
@@ -57,10 +98,10 @@ jobs:
           trap cleanup EXIT
 
           go run ./dev/local/storage-cluster/cmd/cluster-verify \
-            -otlp localhost:4317 \
-            -prometheus http://localhost:9090 \
-            -loki http://localhost:3100 \
-            -tempo http://localhost:3200 \
+            -otlp localhost:14317 \
+            -prometheus http://localhost:19090 \
+            -loki http://localhost:13100 \
+            -tempo http://localhost:13200 \
             -timeout 120s
 
       - name: Run scoped LogQL tests
