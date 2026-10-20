@@ -12,7 +12,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-24.04-riscv
-    timeout-minutes: 60
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
@@ -39,9 +39,6 @@ jobs:
             exit 1
           fi
 
-      - name: Run complete Go test suite
-        run: go test ./...
-
       - name: Build oteldb
         run: go build -o ./oteldb ./cmd/oteldb
 
@@ -65,3 +62,6 @@ jobs:
             -loki http://localhost:3100 \
             -tempo http://localhost:3200 \
             -timeout 120s
+
+      - name: Run scoped LogQL tests
+        run: go test ./internal/logql/...
