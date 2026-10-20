@@ -1,0 +1,67 @@
+name: RISC-V validation
+
+on:
+  push:
+    branches:
+      - validation/828-riscv-runner
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04-riscv
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Confirm native RISC-V environment
+        run: |
+          uname -a
+          test "$(uname -m)" = riscv64
+          go version
+
+      - name: Run the original riscv64 regression test
+        shell: bash
+        run: |
+          set -o pipefail
+          output=$(go test ./internal/logql/logqlengine/logqlmetric \
+            -run '^TestInstantAggregation/Test12$' -v -count=1 2>&1)
+          printf '%s\n' "$output"
+          grep -F -- '--- PASS: TestInstantAggregation/Test12' <<<"$output"
+          if grep -F -- '--- SKIP: TestInstantAggregation/Test12' <<<"$output"; then
+            echo 'Test12 was skipped instead of executed' >&2
+            exit 1
+          fi
+
+      - name: Run complete Go test suite
+        run: go test ./...
+
+      - name: Build oteldb
+        run: go build -o ./oteldb ./cmd/oteldb
+
+      - name: Verify embedded ingest and query paths
+        shell: bash
+        run: |
+          set -o pipefail
+          ./oteldb --embedded >oteldb.log 2>&1 &
+          pid=$!
+          cleanup() {
+            kill "$pid" 2>/dev/null || true
+            wait "$pid" 2>/dev/null || true
+            printf '%s\n' '--- oteldb.log ---'
+            cat oteldb.log
+          }
+          trap cleanup EXIT
+
+          go run ./dev/local/storage-cluster/cmd/cluster-verify \
+            -otlp localhost:4317 \
+            -prometheus http://localhost:9090 \
+            -loki http://localhost:3100 \
+            -tempo http://localhost:3200 \
+            -timeout 120s
